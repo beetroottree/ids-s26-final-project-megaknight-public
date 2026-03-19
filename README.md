@@ -2,10 +2,10 @@
 # CMU Interactive Data Science Final Project
 
 * **Team members**:
-  * Contact person: TODO@andrew.cmu.edu
-  * TODO@andrew.cmu.edu
-  * TODO@andrew.cmu.edu
-  * TODO@andrew.cmu.edu
+  * Contact person: npatri@andrew.cmu.edu
+  * houkinw@andrew.cmu.edu
+  * nzmudin@andrew.cmu.edu
+  * andrewz2@andrew.cmu.edu
 
 ## Work distribution
 

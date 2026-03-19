@@ -15,7 +15,7 @@ Update towards the end of the project.
 
 ### Proposal
 
-- [ ] A completed [proposal](Proposal.md). Each student should submit the URL that points to this file in their github repo on Canvas.
+- [ x ] A completed [proposal](Proposal.md). Each student should submit the URL that points to this file in their github repo on Canvas.
 
 ### Sketches and Data Analysis
 

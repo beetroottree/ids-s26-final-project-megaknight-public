@@ -4,7 +4,7 @@
 * **Team members**:
   * Contact person: npatri@andrew.cmu.edu
   * houkinw@andrew.cmu.edu
-  * nzmudin@andrew.cmu.edu
+  * nzmudzin@andrew.cmu.edu
   * andrewz2@andrew.cmu.edu
 
 ## Work distribution

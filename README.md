@@ -19,7 +19,7 @@ Update towards the end of the project.
 
 ### Sketches and Data Analysis
 
-- [ ] Before Milestone 2 is due, add Sketches and Data Analysis to your [proposal](Proposal.md).
+- [x] Before Milestone 2 is due, add Sketches and Data Analysis to your [proposal](Proposal.md).
 
 ### Final deliverables
 

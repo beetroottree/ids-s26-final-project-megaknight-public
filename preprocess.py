@@ -297,6 +297,62 @@ def compute_trophy_level_stats(battles):
     return result
 
 
+def compute_counter_matrix(battles, top_n=60):
+    """
+    Compute card-vs-card win rates for the top N most-used cards.
+    win_rate(A, B) = P(win | player has A in deck AND opponent has B in deck).
+    """
+    print("  Identifying top cards...")
+    card_cols_w = [f"winner.card{i}.id" for i in range(1, 9)]
+    card_cols_l = [f"loser.card{i}.id" for i in range(1, 9)]
+
+    all_counts: dict = {}
+    for col in card_cols_w + card_cols_l:
+        for cid in battles[col].dropna().astype(int):
+            all_counts[cid] = all_counts.get(cid, 0) + 1
+    top_ids = set(sorted(all_counts, key=lambda x: -all_counts[x])[:top_n])
+
+    print("  Building winner/loser card pair table...")
+    battles_ri = battles.reset_index(drop=True)
+    battles_ri.index.name = "bid"
+
+    w_long = (
+        battles_ri[card_cols_w]
+        .reset_index()
+        .melt(id_vars="bid", value_vars=card_cols_w, value_name="card_a")
+        .dropna()
+    )
+    w_long["card_a"] = w_long["card_a"].astype(int)
+    w_long = w_long[w_long["card_a"].isin(top_ids)][["bid", "card_a"]]
+
+    l_long = (
+        battles_ri[card_cols_l]
+        .reset_index()
+        .melt(id_vars="bid", value_vars=card_cols_l, value_name="card_b")
+        .dropna()
+    )
+    l_long["card_b"] = l_long["card_b"].astype(int)
+    l_long = l_long[l_long["card_b"].isin(top_ids)][["bid", "card_b"]]
+
+    print("  Merging pairs (may take a moment)...")
+    pairs = w_long.merge(l_long, on="bid")
+    wins = pairs.groupby(["card_a", "card_b"]).size().reset_index(name="wins_a_vs_b")
+
+    # total(A,B) = wins(A beats B) + wins(B beats A)
+    wins_rev = wins.rename(
+        columns={"card_a": "card_b", "card_b": "card_a", "wins_a_vs_b": "wins_b_vs_a"}
+    )
+    merged = wins.merge(wins_rev, on=["card_a", "card_b"], how="left").fillna(0)
+    merged["total"] = merged["wins_a_vs_b"] + merged["wins_b_vs_a"]
+    merged = merged[merged["total"] >= 200]
+    merged["win_rate"] = merged["wins_a_vs_b"] / merged["total"]
+
+    merged["card_a"] = merged["card_a"].map(lambda x: CARD_ID_TO_NAME.get(x, f"Card_{x}"))
+    merged["card_b"] = merged["card_b"].map(lambda x: CARD_ID_TO_NAME.get(x, f"Card_{x}"))
+
+    return merged[["card_a", "card_b", "wins_a_vs_b", "total", "win_rate"]]
+
+
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     print("Loading battle data...")
@@ -331,6 +387,11 @@ def main():
         "avg_trophies": battles["winner.startingTrophies"].mean(),
     }
     pd.DataFrame([summary]).to_parquet(f"{OUTPUT_DIR}/summary.parquet", index=False)
+
+    print("Computing counter matrix (top 60 cards)...")
+    counter_mx = compute_counter_matrix(battles)
+    counter_mx.to_parquet(f"{OUTPUT_DIR}/counter_matrix.parquet", index=False)
+    print(f"  Saved counter_matrix: {len(counter_mx)} card pairs")
 
     print("Done! All processed data saved to", OUTPUT_DIR)
 

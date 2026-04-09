@@ -401,4 +401,3 @@ All views will support cross-filtering: selecting a card in one view highlights 
 This dashboard transforms 37.9 million Clash Royale battles into actionable insights about card balance, strategic counters, pay-to-win dynamics, and the impact of card progression systems. By combining statistical testing with intuitive visualizations, we empower both casual players and data scientists to understand and optimize their gameplay in a transparent, evidence-based manner. The card level analysis in particular provides unprecedented insight into how much competitive advantage can be purchased through card upgrades versus earned through skill and strategy.
 
 
-

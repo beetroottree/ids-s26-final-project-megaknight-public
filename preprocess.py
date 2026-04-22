@@ -353,6 +353,78 @@ def compute_counter_matrix(battles, top_n=60):
     return merged[["card_a", "card_b", "wins_a_vs_b", "total", "win_rate"]]
 
 
+def compute_deck_records(battles):
+    """
+    Store each deck (winner + loser) as a pipe-delimited string of sorted card names.
+    Enables arbitrary card-combination win-rate queries at runtime.
+    """
+    card_cols_w = [f"winner.card{i}.id" for i in range(1, 9)]
+    card_cols_l = [f"loser.card{i}.id" for i in range(1, 9)]
+    name_map = CARD_ID_TO_NAME
+
+    w_arr = battles[card_cols_w].fillna(0).astype(int).values
+    l_arr = battles[card_cols_l].fillna(0).astype(int).values
+    w_elixir = battles["winner.elixir.average"].values if "winner.elixir.average" in battles.columns else np.full(len(battles), np.nan)
+    l_elixir = battles["loser.elixir.average"].values  if "loser.elixir.average"  in battles.columns else np.full(len(battles), np.nan)
+
+    records = []
+    n = len(battles)
+    for i in range(n):
+        w_cards = sorted(name_map[x] for x in w_arr[i] if x in name_map)
+        records.append({"cards_str": "|" + "|".join(w_cards) + "|", "win": 1, "avg_elixir": float(w_elixir[i])})
+        l_cards = sorted(name_map[x] for x in l_arr[i] if x in name_map)
+        records.append({"cards_str": "|" + "|".join(l_cards) + "|", "win": 0, "avg_elixir": float(l_elixir[i])})
+
+    return pd.DataFrame(records)
+
+
+def compute_card_pair_stats(battles):
+    """
+    For every pair of cards that co-appear in the same deck, compute
+    co_appearances and win_rate_together (the deck containing both won).
+    """
+    from collections import defaultdict
+
+    card_cols_w = [f"winner.card{i}.id" for i in range(1, 9)]
+    card_cols_l = [f"loser.card{i}.id" for i in range(1, 9)]
+    name_map = CARD_ID_TO_NAME
+
+    pair_wins  = defaultdict(int)
+    pair_total = defaultdict(int)
+
+    w_arr = battles[card_cols_w].fillna(0).astype(int).values
+    l_arr = battles[card_cols_l].fillna(0).astype(int).values
+    n = len(battles)
+    print(f"  Building pair stats over {n:,} battles…")
+
+    for i in range(n):
+        w_cards = sorted(name_map[x] for x in w_arr[i] if x in name_map)
+        for ai in range(len(w_cards)):
+            for bi in range(ai + 1, len(w_cards)):
+                k = (w_cards[ai], w_cards[bi])
+                pair_wins[k]  += 1
+                pair_total[k] += 1
+
+        l_cards = sorted(name_map[x] for x in l_arr[i] if x in name_map)
+        for ai in range(len(l_cards)):
+            for bi in range(ai + 1, len(l_cards)):
+                k = (l_cards[ai], l_cards[bi])
+                pair_total[k] += 1
+
+    records = []
+    for (a, b), total in pair_total.items():
+        if total >= 200:
+            wins = pair_wins.get((a, b), 0)
+            records.append({
+                "card_a": a, "card_b": b,
+                "co_appearances": total,
+                "wins_together": wins,
+                "win_rate_together": wins / total,
+            })
+
+    return pd.DataFrame(records).sort_values("co_appearances", ascending=False).reset_index(drop=True)
+
+
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     print("Loading battle data...")
@@ -392,6 +464,16 @@ def main():
     counter_mx = compute_counter_matrix(battles)
     counter_mx.to_parquet(f"{OUTPUT_DIR}/counter_matrix.parquet", index=False)
     print(f"  Saved counter_matrix: {len(counter_mx)} card pairs")
+
+    print("Computing deck records for combination queries…")
+    deck_records = compute_deck_records(battles)
+    deck_records.to_parquet(f"{OUTPUT_DIR}/deck_records.parquet", index=False)
+    print(f"  Saved deck_records: {len(deck_records):,} rows")
+
+    print("Computing card pair co-occurrence stats…")
+    pair_stats = compute_card_pair_stats(battles)
+    pair_stats.to_parquet(f"{OUTPUT_DIR}/card_pair_stats.parquet", index=False)
+    print(f"  Saved card_pair_stats: {len(pair_stats):,} pairs")
 
     print("Done! All processed data saved to", OUTPUT_DIR)
 

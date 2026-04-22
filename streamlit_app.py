@@ -106,6 +106,16 @@ def load_all():
         if os.path.exists(os.path.join(PROCESSED_DIR, v))
     }
 
+@st.cache_data
+def load_deck_records():
+    path = os.path.join(PROCESSED_DIR, "deck_records.parquet")
+    return pd.read_parquet(path) if os.path.exists(path) else None
+
+@st.cache_data
+def load_card_pair_stats():
+    path = os.path.join(PROCESSED_DIR, "card_pair_stats.parquet")
+    return pd.read_parquet(path) if os.path.exists(path) else None
+
 
 data        = load_all()
 card_stats  = data["card_stats"]
@@ -229,6 +239,157 @@ elif page == "Card Stats":
     display_df["appearance_rate"] = (display_df["appearance_rate"] * 100).round(2)
     display_df.columns = ["Card","Rarity","Elixir","Appearances","Wins","Win Rate %","Appearance Rate %"]
     st.dataframe(display_df.sort_values("Appearances", ascending=False), use_container_width=True, height=400)
+
+    st.markdown("---")
+    # ── CARD DETAIL LOOKUP ────────────────────────────────────────────────────
+    st.subheader("Card Detail Lookup")
+    st.caption("Pick one or more cards to compare their stats side by side.")
+
+    all_card_names = sorted(card_stats[~card_stats["card_name"].str.startswith("Card_")]["card_name"].tolist())
+    detail_picks = st.multiselect(
+        "Select cards", all_card_names, key="detail_picks",
+        placeholder="Type a card name…",
+    )
+
+    if detail_picks:
+        detail_df = card_stats[card_stats["card_name"].isin(detail_picks)].copy()
+
+        # Images row
+        img_cols = st.columns(min(len(detail_picks), 8))
+        for i, (_, row) in enumerate(detail_df.iterrows()):
+            with img_cols[i % 8]:
+                st.image(card_image_url(row["card_name"]), width=80)
+                rc = RARITY_COLORS.get(row["rarity"], "#aaa")
+                st.markdown(
+                    f"<div style='text-align:center;font-size:0.72rem'>"
+                    f"<b>{row['card_name']}</b><br>"
+                    f"<span style='color:{rc}'>■</span> {row['rarity']}<br>"
+                    f"⚡{int(row['elixir_cost'])} &nbsp;·&nbsp; WR <b>{row['win_rate']:.1%}</b></div>",
+                    unsafe_allow_html=True,
+                )
+
+        # Comparison charts
+        if len(detail_picks) > 1:
+            ch_col1, ch_col2 = st.columns(2)
+            with ch_col1:
+                wr_chart = alt.Chart(detail_df).mark_bar().encode(
+                    x=alt.X("win_rate:Q", title="Win Rate", axis=alt.Axis(format=".1%")),
+                    y=alt.Y("card_name:N", sort="-x", title=""),
+                    color=rarity_color_scale(),
+                    tooltip=[alt.Tooltip("card_name:N"), alt.Tooltip("win_rate:Q", format=".2%"), alt.Tooltip("rarity:N")],
+                ).properties(height=max(120, len(detail_picks) * 40))
+                st.altair_chart(wr_chart + hline(0.5), use_container_width=True)
+            with ch_col2:
+                app_chart = alt.Chart(detail_df).mark_bar().encode(
+                    x=alt.X("appearance_rate:Q", title="Appearance Rate", axis=alt.Axis(format=".1%")),
+                    y=alt.Y("card_name:N", sort="-x", title=""),
+                    color=rarity_color_scale(),
+                    tooltip=[alt.Tooltip("card_name:N"), alt.Tooltip("appearance_rate:Q", format=".2%")],
+                ).properties(height=max(120, len(detail_picks) * 40))
+                st.altair_chart(app_chart, use_container_width=True)
+
+        # Stats table
+        tbl = detail_df[["card_name","rarity","elixir_cost","card_type","total_appearances","wins","win_rate","appearance_rate"]].copy()
+        tbl["win_rate"]        = (tbl["win_rate"]        * 100).round(2)
+        tbl["appearance_rate"] = (tbl["appearance_rate"] * 100).round(2)
+        tbl.columns = ["Card","Rarity","Elixir","Type","Appearances","Wins","Win Rate %","Appearance Rate %"]
+        st.dataframe(tbl.sort_values("Win Rate %", ascending=False), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    # ── CARD COMBINATION ANALYSIS ─────────────────────────────────────────────
+    st.subheader("Card Combination Analysis")
+    st.caption("Select 2–8 cards to see the win rate of decks containing ALL of them.")
+
+    combo_picks = st.multiselect(
+        "Select cards for combo", all_card_names, key="combo_picks",
+        max_selections=8, placeholder="Pick 2 or more cards…",
+    )
+
+    if len(combo_picks) >= 2:
+        deck_records_df = load_deck_records()
+        pair_stats_df   = load_card_pair_stats()
+
+        if deck_records_df is None:
+            st.warning("deck_records.parquet not found — run preprocess.py first.")
+        else:
+            with st.spinner("Querying deck records…"):
+                mask = pd.Series([True] * len(deck_records_df), index=deck_records_df.index)
+                for card in combo_picks:
+                    mask &= deck_records_df["cards_str"].str.contains(f"|{card}|", regex=False)
+                combo_df = deck_records_df[mask]
+
+            n_decks = len(combo_df)
+            if n_decks == 0:
+                st.warning("No decks found containing all selected cards. Try a different combination.")
+            else:
+                combo_wr = combo_df["win"].mean()
+                combo_elixir = combo_df["avg_elixir"].mean()
+
+                # Individual card win rates for comparison
+                indiv_wrs = {
+                    row["card_name"]: row["win_rate"]
+                    for _, row in card_stats[card_stats["card_name"].isin(combo_picks)].iterrows()
+                }
+                avg_indiv_wr = np.mean(list(indiv_wrs.values())) if indiv_wrs else 0.5
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Combo Win Rate",    f"{combo_wr:.2%}")
+                m2.metric("Avg Indiv Win Rate", f"{avg_indiv_wr:.2%}",
+                          delta=f"{(combo_wr - avg_indiv_wr)*100:+.1f}pp")
+                m3.metric("Decks Sampled",     f"{n_decks:,}")
+                m4.metric("Avg Elixir",        f"{combo_elixir:.2f}")
+
+                # Bar chart: combo WR vs each individual card's WR
+                compare_data = [{"label": " + ".join(combo_picks), "win_rate": combo_wr, "kind": "Combo"}]
+                for cname, wr in indiv_wrs.items():
+                    compare_data.append({"label": cname, "win_rate": wr, "kind": "Individual"})
+                compare_df = pd.DataFrame(compare_data)
+
+                cmp_chart = alt.Chart(compare_df).mark_bar().encode(
+                    x=alt.X("win_rate:Q", title="Win Rate", axis=alt.Axis(format=".1%")),
+                    y=alt.Y("label:N", sort="-x", title=""),
+                    color=alt.Color("kind:N", scale=alt.Scale(
+                        domain=["Combo", "Individual"],
+                        range=["#FFD54F", "#4FC3F7"],
+                    ), legend=alt.Legend(title="")),
+                    tooltip=[alt.Tooltip("label:N"), alt.Tooltip("win_rate:Q", format=".2%"), alt.Tooltip("kind:N")],
+                ).properties(height=max(120, (len(combo_picks) + 1) * 40))
+                st.altair_chart(cmp_chart + hline(0.5), use_container_width=True)
+
+                # Pairwise win rates for all pairs in the selection
+                if pair_stats_df is not None and len(combo_picks) >= 2:
+                    st.markdown("**Pairwise co-occurrence stats within this combo:**")
+                    from itertools import combinations as _comb
+                    pair_rows = []
+                    for a, b in _comb(sorted(combo_picks), 2):
+                        row_ab = pair_stats_df[
+                            (pair_stats_df["card_a"] == a) & (pair_stats_df["card_b"] == b)
+                        ]
+                        if row_ab.empty:
+                            row_ab = pair_stats_df[
+                                (pair_stats_df["card_a"] == b) & (pair_stats_df["card_b"] == a)
+                            ]
+                        if not row_ab.empty:
+                            r = row_ab.iloc[0]
+                            pair_rows.append({
+                                "Pair": f"{a} + {b}",
+                                "Co-appearances": int(r["co_appearances"]),
+                                "Wins Together": int(r["wins_together"]),
+                                "Pair Win Rate %": round(float(r["win_rate_together"]) * 100, 2),
+                            })
+                        else:
+                            pair_rows.append({
+                                "Pair": f"{a} + {b}",
+                                "Co-appearances": 0,
+                                "Wins Together": 0,
+                                "Pair Win Rate %": None,
+                            })
+                    if pair_rows:
+                        pair_tbl = pd.DataFrame(pair_rows).sort_values("Pair Win Rate %", ascending=False)
+                        st.dataframe(pair_tbl, use_container_width=True, hide_index=True)
+
+    elif len(combo_picks) == 1:
+        st.caption("Add at least one more card to see combination stats.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -668,49 +829,122 @@ elif page == "Deck Builder":
 
                 # ── SWAP SUGGESTIONS ──────────────────────────────────────────
                 st.subheader("Swap Suggestions")
-                st.caption("Lowest WR cards in deck vs same-cost-ish alternatives.")
+
+                _pair_stats = load_card_pair_stats()
+
+                def _card_synergy_score(card_name, others, pair_df, card_df):
+                    """60% pair synergy with deck-mates + 40% individual WR."""
+                    row = card_df[card_df["card_name"] == card_name]
+                    indiv_wr = float(row["win_rate"].iloc[0]) if not row.empty else 0.5
+                    if pair_df is None or not others:
+                        return indiv_wr
+                    pair_wrs = []
+                    for other in others:
+                        a, b = sorted([card_name, other])
+                        pr = pair_df[(pair_df["card_a"] == a) & (pair_df["card_b"] == b)]
+                        if not pr.empty:
+                            pair_wrs.append(float(pr.iloc[0]["win_rate_together"]))
+                    pair_score = float(np.mean(pair_wrs)) if pair_wrs else indiv_wr
+                    return 0.6 * pair_score + 0.4 * indiv_wr
+
+                # Score every card in the deck by synergy with its 7 deck-mates
+                deck_scores = {}
+                for cname in deck:
+                    others = [c for c in deck if c != cname]
+                    deck_scores[cname] = _card_synergy_score(cname, others, _pair_stats, named_cards)
+
+                # Candidates: reasonably popular cards not already in the deck
                 min_app_thresh = float(named_cards["total_appearances"].quantile(0.25))
                 swap_pool = named_cards[
                     (named_cards["total_appearances"] >= min_app_thresh) &
                     (~named_cards["card_name"].isin(deck))
                 ].copy()
-                bottom2 = deck_df.nsmallest(min(2, len(deck_df)), "win_rate")
+
+                # Type counts for type-balance warnings
+                deck_type_counts = deck_df["card_type"].value_counts().to_dict()
+
+                # Pick the 3 deck cards with the lowest synergy scores → most improvable
+                ranked_weak = sorted(deck_scores.items(), key=lambda x: x[1])[:3]
+
                 any_suggestion = False
+                for w_name, w_score in ranked_weak:
+                    w_row    = deck_df[deck_df["card_name"] == w_name].iloc[0]
+                    w_elixir = w_row["elixir_cost"]
+                    w_wr     = w_row["win_rate"]
+                    w_rarity = w_row["rarity"]
+                    w_type   = w_row["card_type"]
+                    others   = [c for c in deck if c != w_name]
 
-                for _, weak in bottom2.iterrows():
-                    w_name   = weak["card_name"]
-                    w_elixir = weak["elixir_cost"]
-                    w_wr     = weak["win_rate"]
-                    w_rarity = weak["rarity"]
-                    alts = swap_pool[
-                        (swap_pool["elixir_cost"].between(w_elixir - 1, w_elixir + 1)) &
-                        (swap_pool["win_rate"] > w_wr + 0.01)
-                    ].nlargest(3, "win_rate")
-                    if alts.empty:
+                    # Score every candidate as if it replaced w_name
+                    scored_alts = []
+                    for _, alt in swap_pool.iterrows():
+                        alt_name = alt["card_name"]
+                        alt_score = _card_synergy_score(alt_name, others, _pair_stats, named_cards)
+                        improvement = alt_score - w_score
+                        if improvement <= 0:
+                            continue
+                        elixir_delta = int(alt["elixir_cost"]) - int(w_elixir)
+                        # Penalise large elixir swings (keeps avg cost stable)
+                        elixir_penalty = abs(elixir_delta) * 0.005
+                        net = improvement - elixir_penalty
+                        # Warn if this would remove the only card of its type
+                        sole_type = (deck_type_counts.get(w_type, 0) == 1)
+                        type_ok   = (not sole_type) or (alt["card_type"] == w_type)
+                        scored_alts.append((net, alt_score, alt, elixir_delta, type_ok))
+
+                    if not scored_alts:
                         continue
-                    any_suggestion = True
-                    n_alts = len(alts)
 
-                    # Row: [remove label] [weak card] [arrow] [alt1] [alt2] [alt3]
+                    # Sort by net improvement descending; bubble type-safe suggestions up
+                    scored_alts.sort(key=lambda x: (not x[4], -x[0]))
+                    top_alts = scored_alts[:3]
+
+                    any_suggestion = True
+                    n_alts = len(top_alts)
+                    rc = RARITY_COLORS.get(w_rarity, "#aaa")
+
                     label_col, weak_col, arrow_col, *alt_cols = st.columns([0.55, 1, 0.3] + [1] * n_alts)
                     with label_col:
                         st.markdown("<div class='swap-remove-badge-wrap'><span class='swap-remove-badge'>REMOVE</span></div>", unsafe_allow_html=True)
                     with weak_col:
-                        rc = RARITY_COLORS.get(w_rarity, "#aaa")
                         st.image(card_image_url(w_name), use_container_width=True)
-                        st.markdown(f"<div class='swap-card-meta'><b>{w_name}</b><br><span style='color:{rc}'>■</span> {w_rarity}<br>⚡{int(w_elixir)} &nbsp;·&nbsp; <span style='color:#ff6b6b'>WR {w_wr:.1%}</span></div>", unsafe_allow_html=True)
+                        st.markdown(
+                            f"<div class='swap-card-meta'><b>{w_name}</b><br>"
+                            f"<span style='color:{rc}'>■</span> {w_rarity}<br>"
+                            f"⚡{int(w_elixir)} &nbsp;·&nbsp; <span style='color:#ff6b6b'>WR {w_wr:.1%}</span><br>"
+                            f"<span style='color:#aaa;font-size:0.6rem'>deck score {w_score:.3f}</span></div>",
+                            unsafe_allow_html=True,
+                        )
                     with arrow_col:
                         st.markdown("<div class='swap-arrow'>→</div>", unsafe_allow_html=True)
-                    for idx, (_, alt_row) in enumerate(alts.iterrows()):
-                        with alt_cols[idx]:
-                            delta = (alt_row["win_rate"] - w_wr) * 100
-                            rc_a  = RARITY_COLORS.get(alt_row["rarity"], "#aaa")
+
+                    for _, (net, alt_score, alt_row, elixir_delta, type_ok) in enumerate(top_alts):
+                        with alt_cols[_]:
+                            wr_delta   = (alt_row["win_rate"] - w_wr) * 100
+                            rc_a       = RARITY_COLORS.get(alt_row["rarity"], "#aaa")
+                            elixir_tag = (f"<span style='color:#ff9800'>⚡{int(alt_row['elixir_cost'])} ({elixir_delta:+d})</span>"
+                                          if elixir_delta != 0
+                                          else f"⚡{int(alt_row['elixir_cost'])}")
+                            warn_tag   = "" if type_ok else "<br><span style='color:#ff9800;font-size:0.58rem'>⚠ lone type</span>"
                             st.image(card_image_url(alt_row["card_name"]), use_container_width=True)
-                            st.markdown(f"<div class='swap-card-meta'><b>{alt_row['card_name']}</b><br><span style='color:{rc_a}'>■</span> {alt_row['rarity']}<br>⚡{int(alt_row['elixir_cost'])} &nbsp;·&nbsp; <span style='color:#4caf50'>+{delta:.1f}%</span></div>", unsafe_allow_html=True)
+                            st.markdown(
+                                f"<div class='swap-card-meta'><b>{alt_row['card_name']}</b><br>"
+                                f"<span style='color:{rc_a}'>■</span> {alt_row['rarity']}<br>"
+                                f"{elixir_tag} &nbsp;·&nbsp; <span style='color:#4caf50'>+{wr_delta:.1f}%</span><br>"
+                                f"<span style='color:#aaa;font-size:0.6rem'>deck score {alt_score:.3f}{warn_tag}</span></div>",
+                                unsafe_allow_html=True,
+                            )
                     st.markdown("<hr class='hr-soft'>", unsafe_allow_html=True)
 
                 if not any_suggestion:
-                    st.caption("No swap rows (no +WR alts at ±1 elixir in pool).")
+                    st.caption("No improvements found — your deck looks well-optimised for this meta.")
+                else:
+                    use_pair = _pair_stats is not None
+                    st.caption(
+                        "Ranked by deck synergy score (pair win-rate with remaining 7 cards + individual WR)."
+                        if use_pair else
+                        "Ranked by individual win rate (run preprocess.py to unlock synergy scoring)."
+                    )
 
                 # ── BIGGEST THREATS (counter matrix) ─────────────────────────
                 st.markdown("---")

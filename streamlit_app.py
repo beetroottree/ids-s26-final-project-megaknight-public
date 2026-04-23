@@ -1,3 +1,5 @@
+import hashlib
+import html
 import os
 import pandas as pd
 import numpy as np
@@ -67,7 +69,6 @@ PAGES = [
 if "page" not in st.session_state:
     st.session_state.page = "Overview"
 
-# ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("<h2 class='sidebar-brand-title'>⚔️ Clash Royale</h2><p class='sidebar-brand-sub'>Meta Analyzer</p>", unsafe_allow_html=True)
     st.markdown("---")
@@ -75,21 +76,20 @@ with st.sidebar:
 
     for icon, name in PAGES:
         is_active = st.session_state.page == name
-        container = st.container()
-        if is_active:
-            container.markdown('<div class="active-btn">', unsafe_allow_html=True)
-        if container.button(f"{icon}  {name}", key=f"nav_{name}"):
+        if st.button(
+            f"{icon}  {name}",
+            key=f"nav_{name}",
+            type="primary" if is_active else "secondary",
+            use_container_width=True,
+        ):
             st.session_state.page = name
             st.rerun()
-        if is_active:
-            container.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("<p class='sidebar-meta'>Season 18 (Dec 2020) · ~6.8M battles · 102 cards</p>", unsafe_allow_html=True)
 
 page = st.session_state.page
 
-# ── Data loading ───────────────────────────────────────────────────────────────
 @st.cache_data
 def load_all():
     files = {
@@ -116,7 +116,6 @@ def load_card_pair_stats():
     path = os.path.join(PROCESSED_DIR, "card_pair_stats.parquet")
     return pd.read_parquet(path) if os.path.exists(path) else None
 
-
 data        = load_all()
 card_stats  = data["card_stats"]
 deck_cost   = data["deck_cost"]
@@ -132,10 +131,6 @@ def _card_type(cid):
     return "Troop"
 card_stats["card_type"] = card_stats["card_id"].apply(_card_type)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PAGE: OVERVIEW
-# ══════════════════════════════════════════════════════════════════════════════
 if page == "Overview":
     st.title("⚔️ Clash Royale Meta Analyzer")
     st.caption("Season 18 ladder (~6.8M battles, Dec 2020).")
@@ -161,56 +156,115 @@ if page == "Overview":
     with col_r:
         st.subheader("Top 15 Highest Win Rate Cards")
         min_app = card_stats["total_appearances"].quantile(0.25)
-        top_wr  = card_stats[card_stats["total_appearances"] >= min_app].nlargest(15, "win_rate").copy()
-        top_wr["win_rate_pct"] = (top_wr["win_rate"] * 100).round(1).astype(str) + "%"
+        top_wr = card_stats[card_stats["total_appearances"] >= min_app].nlargest(15, "win_rate").copy()
 
-        base2 = alt.Chart(top_wr).encode(y=alt.Y("card_name:N", sort="-x", title="", axis=alt.Axis(labelFontSize=13, labelLimit=160)))
-        bars2 = base2.mark_bar().encode(
-            x=alt.X("win_rate:Q", title="Win Rate", axis=alt.Axis(format=".1%"), scale=alt.Scale(domain=[0.46, 0.60])), color=rarity_color_scale(),
-            tooltip=[alt.Tooltip("card_name:N", title="Card"), alt.Tooltip("rarity:N", title="Rarity"), alt.Tooltip("win_rate:Q", title="Win Rate", format=".2%"), alt.Tooltip("total_appearances:Q", title="Appearances")],
+        base_wr = alt.Chart(top_wr).encode(
+            x=alt.X("win_rate:Q", title="Win Rate", axis=alt.Axis(format=".1%")),
+            y=alt.Y("card_name:N", sort="-x", title="", axis=alt.Axis(labelFontSize=13, labelLimit=160)),
         )
-        labels2 = base2.mark_text(align="left", dx=4, fontSize=12, fontWeight="bold").encode(
-            x=alt.X("win_rate:Q", scale=alt.Scale(domain=[0.46, 0.60])), text=alt.Text("win_rate_pct:N"), color=alt.value("white"),
+        bars2 = base_wr.mark_bar().encode(
+            color=rarity_color_scale(),
+            tooltip=[
+                alt.Tooltip("card_name:N", title="Card"),
+                alt.Tooltip("rarity:N", title="Rarity"),
+                alt.Tooltip("win_rate:Q", title="Win Rate", format=".2%"),
+                alt.Tooltip("total_appearances:Q", title="Appearances"),
+            ],
         )
-        rule50 = hline(0.5)
+        labels2 = base_wr.mark_text(align="left", dx=4, fontSize=12, fontWeight="bold").encode(
+            text=alt.Text("win_rate:Q", format=".1%"),
+            color=alt.value("white"),
+        )
+        rule50 = vline(0.5)
         st.altair_chart((bars2 + labels2 + rule50).properties(height=460), use_container_width=True)
 
     st.subheader("Popularity vs Win Rate — The Meta Quadrant")
     st.caption("Axes: appearance rate vs win rate. Bubble size = appearances.")
     median_app = float(card_stats["appearance_rate"].median())
+    _ar_max = float(card_stats["appearance_rate"].max())
+    _wr_max = float(card_stats["win_rate"].max())
+    _pad = 0.04
+
+    x_scale = alt.Scale(domain=[0, min(1.0, _ar_max * (1 + _pad) + 1e-9)], nice=False, zero=True)
+    y_hi = min(1.0, max(0.5, _wr_max * (1 + _pad) + 1e-9))
+    y_scale = alt.Scale(domain=[0, y_hi], nice=False, zero=True)
+
     scatter = alt.Chart(card_stats).mark_circle(opacity=0.8).encode(
-        x=alt.X("appearance_rate:Q", title="Appearance Rate", axis=alt.Axis(format=".0%")), y=alt.Y("win_rate:Q", title="Win Rate", axis=alt.Axis(format=".1%")), color=rarity_color_scale(), size=alt.Size("total_appearances:Q", scale=alt.Scale(range=[30, 700]), legend=None),
-        tooltip=[alt.Tooltip("card_name:N", title="Card"), alt.Tooltip("rarity:N", title="Rarity"), alt.Tooltip("appearance_rate:Q", title="Appearance Rate", format=".1%"), alt.Tooltip("win_rate:Q", title="Win Rate", format=".1%"), alt.Tooltip("total_appearances:Q", title="Appearances")],
-    ).properties(height=480).interactive()
-    st.altair_chart(scatter + hline(0.5) + vline(median_app), use_container_width=True)
+        x=alt.X("appearance_rate:Q", title="Appearance Rate", axis=alt.Axis(format=".0%"), scale=x_scale),
+        y=alt.Y("win_rate:Q", title="Win Rate", axis=alt.Axis(format=".1%"), scale=y_scale),
+        color=rarity_color_scale(),
+        size=alt.Size("total_appearances:Q", scale=alt.Scale(range=[30, 700]), legend=None),
+        tooltip=[
+            alt.Tooltip("card_name:N", title="Card"),
+            alt.Tooltip("rarity:N", title="Rarity"),
+            alt.Tooltip("appearance_rate:Q", title="Appearance Rate", format=".1%"),
+            alt.Tooltip("win_rate:Q", title="Win Rate", format=".1%"),
+            alt.Tooltip("total_appearances:Q", title="Appearances"),
+        ],
+    )
+    h_mid = alt.Chart().mark_rule(strokeDash=[5, 3], color="gray", opacity=0.5).encode(y=alt.datum(0.5))
+    v_mid = alt.Chart().mark_rule(strokeDash=[5, 3], color="gray", opacity=0.5).encode(x=alt.datum(median_app))
 
+    meta_quad = alt.layer(scatter, h_mid, v_mid).properties(height=480)
+    st.altair_chart(meta_quad, use_container_width=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  PAGE: CARD STATS
-# ══════════════════════════════════════════════════════════════════════════════
 elif page == "Card Stats":
     st.title("🃏 Card Popularity & Win Rates")
+
+    _max_app = int(card_stats["total_appearances"].max())
+    _slider_max_k = max(10, int(np.ceil(_max_app / 1000 / 10) * 10))
 
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         rarity_filter = st.multiselect("Filter by Rarity", options=["Common", "Rare", "Epic", "Legendary", "Unknown"], default=["Common", "Rare", "Epic", "Legendary"])
     with col_f2:
-        min_sample = st.slider("Minimum appearances (thousands)", 0, 500, 10, 10)
+        min_sample = st.slider(
+            "Minimum appearances (thousands)",
+            0,
+            _slider_max_k,
+            10,
+            10,
+            help=(
+                f"Keep cards with at least this many appearances in the sample. "
+                f"Dataset peak ≈ {_max_app:,} (~{_slider_max_k}k); at 500k, many meta cards still qualify."
+            ),
+        )
 
+    _min_abs = int(min_sample) * 1000
     filtered = card_stats[
         card_stats["rarity"].isin(rarity_filter) &
-        (card_stats["total_appearances"] >= min_sample * 1000)
+        (card_stats["total_appearances"] >= _min_abs)
     ].copy()
-    st.caption(f"Showing **{len(filtered)}** cards")
+    st.caption(
+        f"Showing **{len(filtered)}** of **{len(card_stats)}** cards "
+        f"(appearances ≥ **{_min_abs:,}**, selected rarities)."
+    )
 
-    # Card image thumbnail row
     st.subheader("Top Cards at a Glance")
-    top_n = filtered.nlargest(16, "total_appearances")
-    cols  = st.columns(8)
-    for i, (_, row) in enumerate(top_n.iterrows()):
-        with cols[i % 8]:
-            st.image(card_image_url(row["card_name"]), caption=row["card_name"].replace(" ", "\n"), width=70)
-            st.markdown(f"<div class='thumb-wr'>{row['win_rate']:.1%}</div>", unsafe_allow_html=True)
+    st.caption(
+        f"Same filters as above: **≥ {_min_abs:,}** appearances and selected rarities. "
+        "Each tile shows **usage** (share of battles where the card appears) and **win rate**."
+    )
+    top_glance = filtered.nlargest(12, "total_appearances")
+    if len(top_glance) == 0:
+        st.caption("No cards match the current filters.")
+    else:
+        cells = []
+        for _, row in top_glance.iterrows():
+            cname = row["card_name"]
+            esc_body = html.escape(cname)
+            esc_alt = html.escape(cname, quote=True)
+            url = card_image_url(cname)
+            cells.append(
+                f"<div class='glance-card-cell'>"
+                f'<img src="{url}" alt="{esc_alt}" loading="lazy" />'
+                f"<div class='glance-card-name'>{esc_body}</div>"
+                f"<div class='glance-card-usage-label'>Usage in sample</div>"
+                f"<div class='glance-card-usage'>{row['appearance_rate']:.1%}</div>"
+                f"<div class='glance-card-wr'>Win rate: {row['win_rate']:.1%}</div>"
+                f"</div>"
+            )
+        st.markdown(f"<div class='glance-grid'>{''.join(cells)}</div>", unsafe_allow_html=True)
 
     st.markdown("---")
     col1, col2 = st.columns(2)
@@ -241,7 +295,7 @@ elif page == "Card Stats":
     st.dataframe(display_df.sort_values("Appearances", ascending=False), use_container_width=True, height=400)
 
     st.markdown("---")
-    # ── CARD DETAIL LOOKUP ────────────────────────────────────────────────────
+
     st.subheader("Card Detail Lookup")
     st.caption("Pick one or more cards to compare their stats side by side.")
 
@@ -254,7 +308,6 @@ elif page == "Card Stats":
     if detail_picks:
         detail_df = card_stats[card_stats["card_name"].isin(detail_picks)].copy()
 
-        # Images row
         img_cols = st.columns(min(len(detail_picks), 8))
         for i, (_, row) in enumerate(detail_df.iterrows()):
             with img_cols[i % 8]:
@@ -268,7 +321,6 @@ elif page == "Card Stats":
                     unsafe_allow_html=True,
                 )
 
-        # Comparison charts
         if len(detail_picks) > 1:
             ch_col1, ch_col2 = st.columns(2)
             with ch_col1:
@@ -288,7 +340,6 @@ elif page == "Card Stats":
                 ).properties(height=max(120, len(detail_picks) * 40))
                 st.altair_chart(app_chart, use_container_width=True)
 
-        # Stats table
         tbl = detail_df[["card_name","rarity","elixir_cost","card_type","total_appearances","wins","win_rate","appearance_rate"]].copy()
         tbl["win_rate"]        = (tbl["win_rate"]        * 100).round(2)
         tbl["appearance_rate"] = (tbl["appearance_rate"] * 100).round(2)
@@ -296,7 +347,7 @@ elif page == "Card Stats":
         st.dataframe(tbl.sort_values("Win Rate %", ascending=False), use_container_width=True, hide_index=True)
 
     st.markdown("---")
-    # ── CARD COMBINATION ANALYSIS ─────────────────────────────────────────────
+
     st.subheader("Card Combination Analysis")
     st.caption("Select 2–8 cards to see the win rate of decks containing ALL of them.")
 
@@ -325,7 +376,6 @@ elif page == "Card Stats":
                 combo_wr = combo_df["win"].mean()
                 combo_elixir = combo_df["avg_elixir"].mean()
 
-                # Individual card win rates for comparison
                 indiv_wrs = {
                     row["card_name"]: row["win_rate"]
                     for _, row in card_stats[card_stats["card_name"].isin(combo_picks)].iterrows()
@@ -339,7 +389,6 @@ elif page == "Card Stats":
                 m3.metric("Decks Sampled",     f"{n_decks:,}")
                 m4.metric("Avg Elixir",        f"{combo_elixir:.2f}")
 
-                # Bar chart: combo WR vs each individual card's WR
                 compare_data = [{"label": " + ".join(combo_picks), "win_rate": combo_wr, "kind": "Combo"}]
                 for cname, wr in indiv_wrs.items():
                     compare_data.append({"label": cname, "win_rate": wr, "kind": "Individual"})
@@ -356,7 +405,6 @@ elif page == "Card Stats":
                 ).properties(height=max(120, (len(combo_picks) + 1) * 40))
                 st.altair_chart(cmp_chart + hline(0.5), use_container_width=True)
 
-                # Pairwise win rates for all pairs in the selection
                 if pair_stats_df is not None and len(combo_picks) >= 2:
                     st.markdown("**Pairwise co-occurrence stats within this combo:**")
                     from itertools import combinations as _comb
@@ -391,10 +439,6 @@ elif page == "Card Stats":
     elif len(combo_picks) == 1:
         st.caption("Add at least one more card to see combination stats.")
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PAGE: RARITY & PAY-TO-WIN
-# ══════════════════════════════════════════════════════════════════════════════
 elif page == "Rarity & Pay-to-Win":
     st.title("💎 Rarity & Pay-to-Win Investigation")
     st.caption("Rarity vs win rate (same Season 18 sample).")
@@ -434,7 +478,6 @@ elif page == "Rarity & Pay-to-Win":
         dual = alt.layer(bars_rs, line_rs).resolve_scale(y="independent").properties(height=400)
         st.altair_chart(dual, use_container_width=True)
 
-    # Elixir cost vs win rate with manual trendline
     st.subheader("Elixir Cost vs Win Rate")
     cs_valid = cs[cs["elixir_cost"] > 0].copy()
     x_vals = cs_valid["elixir_cost"].values.astype(float)
@@ -455,7 +498,6 @@ elif page == "Rarity & Pay-to-Win":
     )
     st.altair_chart((scatter_ec + trend_line + hline(0.5)).properties(height=420).interactive(), use_container_width=True)
 
-    # Best legendary vs best common cards
     st.subheader("Best Legendary Cards vs Best Common Cards")
     col_leg, col_com = st.columns(2)
     top_leg = cs[cs["rarity"] == "Legendary"].nlargest(5, "win_rate")
@@ -483,10 +525,6 @@ elif page == "Rarity & Pay-to-Win":
     rs_disp.columns = ["Rarity","Avg Win Rate %","Median Win Rate %","# Cards","Total Appearances"]
     st.dataframe(rs_disp, use_container_width=True, hide_index=True)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PAGE: CARD LEVEL IMPACT
-# ══════════════════════════════════════════════════════════════════════════════
 elif page == "Card Level Impact":
     st.title("📈 Card Level Impact Analysis")
     st.caption("Winner vs loser average card level delta vs win rate.")
@@ -532,10 +570,6 @@ elif page == "Card Level Impact":
         best = above.nlargest(1, "win_rate").iloc[0]
         st.caption(f"Largest positive bin: +{best['level_bin_mid']:.1f} level edge → {best['win_rate']:.1%} win rate.")
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PAGE: DECK COST ANALYSIS
-# ══════════════════════════════════════════════════════════════════════════════
 elif page == "Deck Cost Analysis":
     st.title("💰 Deck Cost Analysis")
     st.caption("Deck average elixir vs volume and win rate.")
@@ -583,10 +617,6 @@ elif page == "Deck Cost Analysis":
     dual_eu = alt.layer(bars_eu, line_eu).resolve_scale(y="independent").properties(height=380)
     st.altair_chart(dual_eu, use_container_width=True)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PAGE: DECK BUILDER
-# ══════════════════════════════════════════════════════════════════════════════
 elif page == "Deck Builder":
     from streamlit_clickable_images import clickable_images
 
@@ -603,7 +633,6 @@ elif page == "Deck Builder":
     deck   = st.session_state.deck
     filled = len(deck)
 
-    # ── DECK ZONE: always render all 8 columns ─────────────────────────────────
     st.markdown("### Your Deck")
     _deck_status = "8/8" if filled == 8 else f"{filled}/8"
     st.markdown(f"<p class='deck-progress'>{_deck_status}</p>", unsafe_allow_html=True)
@@ -636,7 +665,6 @@ elif page == "Deck Builder":
 
     st.markdown("---")
 
-    # ── CARD POOL ──────────────────────────────────────────────────────────────
     st.markdown("### Card Pool")
     st.caption("In-deck cards omitted from the pool.")
 
@@ -665,6 +693,17 @@ elif page == "Deck Builder":
     pool      = pool.sort_values(_sc, ascending=_sa)
     pool_list = pool.to_dict("records")
 
+    _pool_sig = (
+        sort_by,
+        search.strip(),
+        tuple(sorted(rarity_pool_filter)),
+        tuple(st.session_state.deck),
+    )
+    if st.session_state.get("_deck_pool_sig") != _pool_sig:
+        st.session_state._deck_pool_sig = _pool_sig
+        st.session_state.last_pool_click = -1
+    _pool_images_key = hashlib.md5(repr(_pool_sig).encode("utf-8")).hexdigest()[:20]
+
     if not pool_list:
         if filled == 8:
             st.caption("Deck full — remove a card to change the pool.")
@@ -677,7 +716,7 @@ elif page == "Deck Builder":
             for r in pool_list
         ]
         pool_clicked = clickable_images(
-            pool_urls, titles=pool_titles, key="pool_images",
+            pool_urls, titles=pool_titles, key=f"pool_images_{_pool_images_key}",
             div_style={"display": "flex", "flex-wrap": "wrap", "gap": "6px", "padding": "10px", "background": "rgba(255,255,255,0.02)", "border-radius": "12px", "border": "1px solid rgba(255,255,255,0.06)", "max-height": "520px", "overflow-y": "auto"},
             img_style={"width": "72px", "height": "86px", "object-fit": "contain", "border-radius": "8px", "cursor": "pointer" if filled < 8 else "not-allowed", "border": "2px solid rgba(255,255,255,0.1)", "transition": "transform 0.15s, border-color 0.15s", "opacity": "1" if filled < 8 else "0.4"},
         )
@@ -694,7 +733,6 @@ elif page == "Deck Builder":
         else:
             st.caption("Deck full")
 
-    # ── ANALYSIS ───────────────────────────────────────────────────────────────
     if deck:
         st.markdown("---")
         st.markdown("### Deck Analysis")
@@ -788,7 +826,6 @@ elif page == "Deck Builder":
                     else:
                         st.caption(f"Mean card WR in deck: {avg_wr:.1%}.")
 
-                # ── CARD TYPE COMPOSITION ─────────────────────────────────────
                 st.markdown("---")
                 st.subheader("Card Type Composition")
                 tc1, tc2, tc3, _ = st.columns(4)
@@ -800,7 +837,6 @@ elif page == "Deck Builder":
                 elif n_spells > 3:
                     st.caption(f"{n_spells} spells — high spell count.")
 
-                # ── DECK ON META CURVE ────────────────────────────────────────
                 st.subheader("Your Deck on the Meta Win Rate Curve")
                 st.caption("Season 18 win rate by deck avg elixir; marker = this deck's cost bin.")
                 curve_df = deck_cost[
@@ -827,13 +863,11 @@ elif page == "Deck Builder":
                 st.altair_chart((area_curve + line_curve + hline(0.5) + vline(avg_elixir, color="#FFD700") + deck_point).properties(height=280), use_container_width=True)
                 st.caption(f"Avg elixir {avg_elixir:.2f}; bin WR ≈ {expected_wr:.1%}.")
 
-                # ── SWAP SUGGESTIONS ──────────────────────────────────────────
                 st.subheader("Swap Suggestions")
 
                 _pair_stats = load_card_pair_stats()
 
                 def _card_synergy_score(card_name, others, pair_df, card_df):
-                    """60% pair synergy with deck-mates + 40% individual WR."""
                     row = card_df[card_df["card_name"] == card_name]
                     indiv_wr = float(row["win_rate"].iloc[0]) if not row.empty else 0.5
                     if pair_df is None or not others:
@@ -847,23 +881,19 @@ elif page == "Deck Builder":
                     pair_score = float(np.mean(pair_wrs)) if pair_wrs else indiv_wr
                     return 0.6 * pair_score + 0.4 * indiv_wr
 
-                # Score every card in the deck by synergy with its 7 deck-mates
                 deck_scores = {}
                 for cname in deck:
                     others = [c for c in deck if c != cname]
                     deck_scores[cname] = _card_synergy_score(cname, others, _pair_stats, named_cards)
 
-                # Candidates: reasonably popular cards not already in the deck
                 min_app_thresh = float(named_cards["total_appearances"].quantile(0.25))
                 swap_pool = named_cards[
                     (named_cards["total_appearances"] >= min_app_thresh) &
                     (~named_cards["card_name"].isin(deck))
                 ].copy()
 
-                # Type counts for type-balance warnings
                 deck_type_counts = deck_df["card_type"].value_counts().to_dict()
 
-                # Pick the 3 deck cards with the lowest synergy scores → most improvable
                 ranked_weak = sorted(deck_scores.items(), key=lambda x: x[1])[:3]
 
                 any_suggestion = False
@@ -875,7 +905,6 @@ elif page == "Deck Builder":
                     w_type   = w_row["card_type"]
                     others   = [c for c in deck if c != w_name]
 
-                    # Score every candidate as if it replaced w_name
                     scored_alts = []
                     for _, alt in swap_pool.iterrows():
                         alt_name = alt["card_name"]
@@ -884,10 +913,10 @@ elif page == "Deck Builder":
                         if improvement <= 0:
                             continue
                         elixir_delta = int(alt["elixir_cost"]) - int(w_elixir)
-                        # Penalise large elixir swings (keeps avg cost stable)
+
                         elixir_penalty = abs(elixir_delta) * 0.005
                         net = improvement - elixir_penalty
-                        # Warn if this would remove the only card of its type
+
                         sole_type = (deck_type_counts.get(w_type, 0) == 1)
                         type_ok   = (not sole_type) or (alt["card_type"] == w_type)
                         scored_alts.append((net, alt_score, alt, elixir_delta, type_ok))
@@ -895,7 +924,6 @@ elif page == "Deck Builder":
                     if not scored_alts:
                         continue
 
-                    # Sort by net improvement descending; bubble type-safe suggestions up
                     scored_alts.sort(key=lambda x: (not x[4], -x[0]))
                     top_alts = scored_alts[:3]
 
@@ -946,7 +974,6 @@ elif page == "Deck Builder":
                         "Ranked by individual win rate (run preprocess.py to unlock synergy scoring)."
                     )
 
-                # ── BIGGEST THREATS (counter matrix) ─────────────────────────
                 st.markdown("---")
                 st.subheader("Biggest Threats to Your Deck")
                 _counter_path = os.path.join(PROCESSED_DIR, "counter_matrix.parquet")

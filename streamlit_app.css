@@ -1,29 +1,88 @@
+.stApp,
+[data-testid="stAppViewContainer"] {
+    background:
+        radial-gradient(ellipse 130% 90% at 0% -15%, rgba(232, 168, 56, 0.14) 0%, transparent 52%),
+        radial-gradient(ellipse 90% 70% at 100% 0%, rgba(79, 195, 247, 0.09) 0%, transparent 48%),
+        radial-gradient(ellipse 70% 55% at 70% 100%, rgba(206, 147, 216, 0.07) 0%, transparent 45%),
+        linear-gradient(168deg, #070a10 0%, #0c101c 28%, #0f1524 55%, #080b12 100%) !important;
+    background-attachment: fixed !important;
+}
+
+[data-testid="stHeader"] {
+    background: linear-gradient(180deg, rgba(12, 16, 28, 0.92) 0%, rgba(12, 16, 28, 0.65) 100%) !important;
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.main .block-container {
+    padding-top: 1.5rem;
+    padding-left: 2rem !important;
+    padding-right: 2rem !important;
+    padding-bottom: 2.5rem !important;
+    margin-top: 0.5rem;
+    border-radius: 18px;
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.02) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.25) inset,
+        0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.main h1 {
+    text-shadow: 0 0 48px rgba(232, 168, 56, 0.14);
+    letter-spacing: 0.02em;
+}
+.main h2,
+.main h3 {
+    letter-spacing: 0.015em;
+    color: #f2f4f8 !important;
+}
+
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
+    background:
+        linear-gradient(180deg, rgba(255, 180, 70, 0.06) 0%, transparent 22%),
+        linear-gradient(180deg, #14182b 0%, #10152a 45%, #0c1020 100%);
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.25);
 }
 [data-testid="stSidebar"] * { color: #e0e0e0 !important; }
 
-div[data-testid="stSidebar"] .stButton button {
+div[data-testid="stSidebar"] .stButton {
+    margin-bottom: 6px !important;
+}
+div[data-testid="stSidebar"] .stButton > button {
     width: 100%;
     text-align: left;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
     border-radius: 8px;
-    color: #e0e0e0 !important;
     padding: 0.5rem 1rem;
-    margin-bottom: 4px;
+    margin: 0 !important;
     font-size: 0.92rem;
-    transition: background 0.2s;
+    transition: background 0.2s, border-color 0.2s;
 }
-div[data-testid="stSidebar"] .stButton button:hover {
-    background: rgba(255,165,0,0.2);
-    border-color: rgba(255,165,0,0.5);
+div[data-testid="stSidebar"] .stButton > button[kind="secondary"],
+div[data-testid="stSidebar"] .stButton button[data-testid="baseButton-secondary"] {
+    background: rgba(255,255,255,0.05) !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    color: #e0e0e0 !important;
 }
-div[data-testid="stSidebar"] .active-btn button {
+div[data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover,
+div[data-testid="stSidebar"] .stButton button[data-testid="baseButton-secondary"]:hover {
+    background: rgba(255,165,0,0.2) !important;
+    border-color: rgba(255,165,0,0.5) !important;
+    color: #e0e0e0 !important;
+}
+div[data-testid="stSidebar"] .stButton > button[kind="primary"],
+div[data-testid="stSidebar"] .stButton button[data-testid="baseButton-primary"] {
     background: rgba(255,165,0,0.3) !important;
-    border-color: #ffa500 !important;
+    border: 1px solid #ffa500 !important;
     color: #ffd700 !important;
     font-weight: 600;
+}
+div[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover,
+div[data-testid="stSidebar"] .stButton button[data-testid="baseButton-primary"]:hover {
+    background: rgba(255,165,0,0.38) !important;
+    border-color: #ffa500 !important;
+    color: #ffd700 !important;
 }
 
 .sidebar-brand-title {
@@ -55,7 +114,6 @@ div[data-testid="stSidebar"] .active-btn button {
 }
 .main .block-container { padding-top: 1.5rem; }
 
-/* Deck builder */
 .deck-progress {
     font-size: 0.85rem;
     color: #aaa;
@@ -89,6 +147,66 @@ div[data-testid="stSidebar"] .active-btn button {
     text-align: center;
     font-size: 0.7rem;
     color: #aaa;
+}
+
+.glance-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 8px;
+}
+.glance-grid .glance-card-cell {
+    margin-bottom: 0;
+}
+.glance-card-cell {
+    text-align: center;
+    padding: 12px 8px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.03) 100%);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+    min-height: 210px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    margin-bottom: 8px;
+}
+.glance-card-cell img {
+    width: 72px !important;
+    height: 86px !important;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 10px;
+    border-radius: 8px;
+}
+.glance-card-name {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #f0f0f0;
+    line-height: 1.25;
+    margin-bottom: 6px;
+    max-width: 100%;
+    word-break: break-word;
+}
+.glance-card-usage {
+    font-size: 0.8rem;
+    color: #ffd700;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+.glance-card-usage-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #888;
+    margin-bottom: 2px;
+}
+.glance-card-wr {
+    font-size: 0.72rem;
+    color: #bbb;
+    margin-top: 4px;
 }
 .swap-remove-badge-wrap {
     height: 86px;

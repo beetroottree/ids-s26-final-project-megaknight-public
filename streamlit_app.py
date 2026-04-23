@@ -8,6 +8,38 @@ import altair as alt
 
 alt.data_transformers.disable_max_rows()
 
+
+
+def _clash_dark_altair_theme():
+    return {
+        "config": {
+            "background": "#0f1524",
+            "view": {"stroke": "#283246"},
+            "title": {"color": "#f2f4f8"},
+            "axis": {
+                "labelColor": "#d8deea",
+                "titleColor": "#eef2f8",
+                "domainColor": "#5f6e85",
+                "gridColor": "#2e3a50",
+                "tickColor": "#5f6e85",
+            },
+            "legend": {
+                "labelColor": "#d8deea",
+                "titleColor": "#eef2f8",
+                "symbolStrokeColor": "#d8deea",
+            },
+            "header": {
+                "labelColor": "#d8deea",
+                "titleColor": "#eef2f8",
+            },
+            "mark": {"color": "#79c0ff"},
+        }
+    }
+
+alt.themes.register("clash_dark", _clash_dark_altair_theme)
+alt.themes.enable("clash_dark")
+
+
 st.set_page_config(page_title="Clash Royale Meta Analyzer", page_icon="⚔️", layout="wide", initial_sidebar_state="expanded")
 
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
